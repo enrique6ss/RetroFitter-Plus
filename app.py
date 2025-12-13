@@ -1,27 +1,35 @@
 import os
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import psycopg
+from psycopg.rows import dict_row
 from datetime import datetime
 from functools import wraps
-from flask import Flask, g, render_template, request, redirect, url_for, session, send_file
+from flask import Flask, g, render_template, request, redirect, session, send_file
 import io, csv
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY")
+app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
 
+
+# -----------------------------
+# Database
+# -----------------------------
 def get_db():
     if "db" not in g:
-        g.db = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+        if not DATABASE_URL:
+            raise RuntimeError("DATABASE_URL not set")
+        g.db = psycopg.connect(DATABASE_URL, row_factory=dict_row)
     return g.db
+
 
 @app.teardown_appcontext
 def close_db(_):
     db = g.pop("db", None)
     if db:
         db.close()
+
 
 def init_db():
     db = get_db()
@@ -44,10 +52,15 @@ def init_db():
     """)
     db.commit()
 
+
 @app.before_request
 def before():
     init_db()
 
+
+# -----------------------------
+# Auth
+# -----------------------------
 def admin_required(f):
     @wraps(f)
     def wrapped(*args, **kwargs):
@@ -56,6 +69,10 @@ def admin_required(f):
         return f(*args, **kwargs)
     return wrapped
 
+
+# -----------------------------
+# Public Intake
+# -----------------------------
 @app.route("/", methods=["GET", "POST"])
 def intake():
     if request.method == "POST":
@@ -65,8 +82,8 @@ def intake():
         cur = db.cursor()
         cur.execute("""
             INSERT INTO requests
-            (created_at, name, phone, address, occupancy, escrow_date,
-             lockbox, meeting_someone, text_consent)
+            (created_at, name, phone, address, occupancy,
+             escrow_date, lockbox, meeting_someone, text_consent)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (
             datetime.utcnow(),
@@ -84,10 +101,15 @@ def intake():
 
     return render_template("intake.html")
 
+
 @app.route("/success")
 def success():
     return render_template("success.html")
 
+
+# -----------------------------
+# Admin
+# -----------------------------
 @app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
     if request.method == "POST":
@@ -96,19 +118,22 @@ def admin_login():
             return redirect("/admin")
     return render_template("admin_login.html")
 
+
 @app.route("/admin/logout")
 def admin_logout():
     session.clear()
     return redirect("/admin/login")
 
+
 @app.route("/admin")
 @admin_required
-def admin():
+def admin_dashboard():
     db = get_db()
     cur = db.cursor()
     cur.execute("SELECT * FROM requests ORDER BY id DESC")
     rows = cur.fetchall()
     return render_template("admin_dashboard.html", rows=rows)
+
 
 @app.route("/admin/request/<int:id>", methods=["GET", "POST"])
 @admin_required
@@ -118,17 +143,24 @@ def admin_request(id):
 
     if request.method == "POST":
         cur.execute("""
-            UPDATE requests SET status=%s, admin_notes=%s WHERE id=%s
-        """, (request.form["status"], request.form["admin_notes"], id))
+            UPDATE requests
+            SET status=%s, admin_notes=%s
+            WHERE id=%s
+        """, (
+            request.form["status"],
+            request.form["admin_notes"],
+            id
+        ))
         db.commit()
 
     cur.execute("SELECT * FROM requests WHERE id=%s", (id,))
     row = cur.fetchone()
     return render_template("admin_view.html", row=row)
 
+
 @app.route("/admin/export.csv")
 @admin_required
-def export():
+def export_csv():
     db = get_db()
     cur = db.cursor()
     cur.execute("SELECT * FROM requests ORDER BY id DESC")
@@ -139,8 +171,7 @@ def export():
     writer.writeheader()
     writer.writerows(rows)
 
-    mem = io.BytesIO(output.getvalue().encode())
-    return send_file(mem, mimetype="text/csv", as_attachment=True, download_name="retrofit_plus_requests.csv")
-
-if __name__ == "__main__":
-    app.run()
+    mem = io.BytesIO(output.getvalue().encode("utf-8"))
+    mem.seek(0)
+    return send_file(mem, mimetype="text/csv", as_attachment=True,
+                     download_name="retrofitter_plus_requests.csv")
