@@ -1,25 +1,33 @@
 import os
+import io
+import csv
 import psycopg
 from psycopg.rows import dict_row
 from datetime import datetime
 from functools import wraps
 from flask import Flask, g, render_template, request, redirect, session, send_file
-import io, csv
 
+# -----------------------------
+# App setup
+# -----------------------------
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
+app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-me")
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is not set")
+
+if not ADMIN_PASSWORD:
+    raise RuntimeError("ADMIN_PASSWORD is not set")
 
 
 # -----------------------------
-# Database
+# Database helpers
 # -----------------------------
 def get_db():
     if "db" not in g:
-        if not DATABASE_URL:
-            raise RuntimeError("DATABASE_URL not set")
         g.db = psycopg.connect(DATABASE_URL, row_factory=dict_row)
     return g.db
 
@@ -53,21 +61,21 @@ def init_db():
     db.commit()
 
 
-@app.before_request
-def before():
+@app.before_first_request
+def startup():
     init_db()
 
 
 # -----------------------------
-# Auth
+# Auth helpers
 # -----------------------------
 def admin_required(f):
     @wraps(f)
-    def wrapped(*args, **kwargs):
+    def wrapper(*args, **kwargs):
         if not session.get("admin"):
             return redirect("/admin/login")
         return f(*args, **kwargs)
-    return wrapped
+    return wrapper
 
 
 # -----------------------------
@@ -135,9 +143,9 @@ def admin_dashboard():
     return render_template("admin_dashboard.html", rows=rows)
 
 
-@app.route("/admin/request/<int:id>", methods=["GET", "POST"])
+@app.route("/admin/request/<int:req_id>", methods=["GET", "POST"])
 @admin_required
-def admin_request(id):
+def admin_request(req_id):
     db = get_db()
     cur = db.cursor()
 
@@ -149,11 +157,11 @@ def admin_request(id):
         """, (
             request.form["status"],
             request.form["admin_notes"],
-            id
+            req_id
         ))
         db.commit()
 
-    cur.execute("SELECT * FROM requests WHERE id=%s", (id,))
+    cur.execute("SELECT * FROM requests WHERE id=%s", (req_id,))
     row = cur.fetchone()
     return render_template("admin_view.html", row=row)
 
@@ -173,5 +181,13 @@ def export_csv():
 
     mem = io.BytesIO(output.getvalue().encode("utf-8"))
     mem.seek(0)
-    return send_file(mem, mimetype="text/csv", as_attachment=True,
-                     download_name="retrofitter_plus_requests.csv")
+    return send_file(
+        mem,
+        mimetype="text/csv",
+        as_attachment=True,
+        download_name="retrofitter_plus_requests.csv"
+    )
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)
