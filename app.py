@@ -7,24 +7,14 @@ from datetime import datetime
 from functools import wraps
 from flask import Flask, g, render_template, request, redirect, session, send_file
 
-# -----------------------------
-# App setup
-# -----------------------------
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-me")
+app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL is not set")
-
-if not ADMIN_PASSWORD:
-    raise RuntimeError("ADMIN_PASSWORD is not set")
-
-
 # -----------------------------
-# Database helpers
+# Database
 # -----------------------------
 def get_db():
     if "db" not in g:
@@ -39,9 +29,9 @@ def close_db(_):
         db.close()
 
 
-def init_db():
-    conn = psycopg.connect(DATABASE_URL)
-    cur = conn.cursor()
+def ensure_tables():
+    db = get_db()
+    cur = db.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS requests (
             id SERIAL PRIMARY KEY,
@@ -58,16 +48,19 @@ def init_db():
             admin_notes TEXT
         )
     """)
-    conn.commit()
-    conn.close()
-
-
-# ✅ RUN DB INIT ON APP STARTUP (Flask 3 SAFE)
-init_db()
+    db.commit()
 
 
 # -----------------------------
-# Auth helper
+# Health check (CRITICAL)
+# -----------------------------
+@app.route("/health")
+def health():
+    return "OK", 200
+
+
+# -----------------------------
+# Auth
 # -----------------------------
 def admin_required(f):
     @wraps(f)
@@ -83,6 +76,8 @@ def admin_required(f):
 # -----------------------------
 @app.route("/", methods=["GET", "POST"])
 def intake():
+    ensure_tables()
+
     if request.method == "POST":
         text_consent = "Yes" if request.form.get("text_consent") else "No"
 
@@ -127,15 +122,10 @@ def admin_login():
     return render_template("admin_login.html")
 
 
-@app.route("/admin/logout")
-def admin_logout():
-    session.clear()
-    return redirect("/admin/login")
-
-
 @app.route("/admin")
 @admin_required
 def admin_dashboard():
+    ensure_tables()
     db = get_db()
     cur = db.cursor()
     cur.execute("SELECT * FROM requests ORDER BY id DESC")
@@ -146,6 +136,7 @@ def admin_dashboard():
 @app.route("/admin/request/<int:req_id>", methods=["GET", "POST"])
 @admin_required
 def admin_request(req_id):
+    ensure_tables()
     db = get_db()
     cur = db.cursor()
 
@@ -169,6 +160,7 @@ def admin_request(req_id):
 @app.route("/admin/export.csv")
 @admin_required
 def export_csv():
+    ensure_tables()
     db = get_db()
     cur = db.cursor()
     cur.execute("SELECT * FROM requests ORDER BY id DESC")
@@ -181,9 +173,4 @@ def export_csv():
 
     mem = io.BytesIO(output.getvalue().encode("utf-8"))
     mem.seek(0)
-    return send_file(
-        mem,
-        mimetype="text/csv",
-        as_attachment=True,
-        download_name="retrofitter_plus_requests.csv"
-    )
+    return send_file(mem, mimetype="text/csv", as_attachment=True)
