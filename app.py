@@ -40,8 +40,8 @@ def close_db(_):
 
 
 def init_db():
-    db = get_db()
-    cur = db.cursor()
+    conn = psycopg.connect(DATABASE_URL)
+    cur = conn.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS requests (
             id SERIAL PRIMARY KEY,
@@ -58,16 +58,16 @@ def init_db():
             admin_notes TEXT
         )
     """)
-    db.commit()
+    conn.commit()
+    conn.close()
 
 
-@app.before_first_request
-def startup():
-    init_db()
+# ✅ RUN DB INIT ON APP STARTUP (Flask 3 SAFE)
+init_db()
 
 
 # -----------------------------
-# Auth helpers
+# Auth helper
 # -----------------------------
 def admin_required(f):
     @wraps(f)
@@ -187,7 +187,3 @@ def export_csv():
         as_attachment=True,
         download_name="retrofitter_plus_requests.csv"
     )
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
