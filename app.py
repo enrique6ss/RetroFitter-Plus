@@ -11,18 +11,22 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 DATABASE_URL = os.environ.get("DATABASE_URL")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
 
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is not set")
+
 # --------------------
 # Database helpers
 # --------------------
 def get_db():
     if "db" not in g:
+        print("CONNECTING TO DB...")
         g.db = psycopg.connect(DATABASE_URL, row_factory=dict_row)
     return g.db
 
 @app.teardown_appcontext
 def close_db(error):
     db = g.pop("db", None)
-    if db is not None:
+    if db:
         db.close()
 
 def ensure_table():
@@ -60,16 +64,11 @@ def admin_required(f):
 # --------------------
 @app.route("/", methods=["GET", "POST"])
 def intake():
-    ensure_table()
+    try:
+        ensure_table()
 
-    if request.method == "POST":
-        try:
-            name = request.form.get("name")
-            phone = request.form.get("phone")
-            address = request.form.get("address")
-
-            if not name or not phone or not address:
-                return "Missing required fields", 400
+        if request.method == "POST":
+            print("FORM SUBMITTED:", dict(request.form))
 
             db = get_db()
             with db.cursor() as cur:
@@ -79,9 +78,9 @@ def intake():
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """, (
                     datetime.utcnow(),
-                    name,
-                    phone,
-                    address,
+                    request.form.get("name"),
+                    request.form.get("phone"),
+                    request.form.get("address"),
                     request.form.get("occupancy"),
                     request.form.get("escrow"),
                     request.form.get("lockbox"),
@@ -91,12 +90,11 @@ def intake():
             db.commit()
             return redirect("/success")
 
-        except Exception as e:
-            # This makes the error visible in Railway logs
-            print("FORM SUBMIT ERROR:", e)
-            return "Internal Server Error", 500
+        return render_template("intake.html")
 
-    return render_template("intake.html")
+    except Exception as e:
+        print("🔥 SUBMIT ERROR:", e)
+        raise e  # let Railway log it clearly
 
 @app.route("/success")
 def success():
