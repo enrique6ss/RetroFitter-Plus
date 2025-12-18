@@ -1,105 +1,41 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
   <title>RetroFitter Plus – Inspection Request</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #f5f5f5;
-      padding: 40px;
-    }
-    h1 {
-      margin-bottom: 5px;
-    }
-    p {
-      margin-bottom: 20px;
-      color: #555;
-    }
-    form {
-      max-width: 500px;
-      background: white;
-      padding: 20px;
-      border-radius: 8px;
-    }
-    label {
-      display: block;
-      margin-top: 12px;
-      font-weight: bold;
-    }
-    input, select, button {
-      width: 100%;
-      padding: 10px;
-      margin-top: 6px;
-    }
-    button {
-      margin-top: 20px;
-      background: #1f7ae0;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    button:hover {
-      background: #155bb5;
-    }
-    .checkbox {
-      display: flex;
-      align-items: center;
-      margin-top: 12px;
-    }
-    .checkbox input {
-      width: auto;
-      margin-right: 8px;
-    }
-  </style>
 </head>
 <body>
 
 <h1>RetroFitter Plus</h1>
-<p>Request a retrofit inspection and we’ll contact you.</p>
+<p>Request a retrofit inspection.</p>
 
 <form method="POST">
+  <input name="name" placeholder="Full Name" required>
+  <input name="phone" placeholder="Phone Number" required>
+  <input name="address" placeholder="Property Address" required>
 
-  <label>Full Name</label>
-  <input type="text" name="name" required>
-
-  <label>Phone Number</label>
-  <input type="tel" name="phone" required>
-
-  <label>Property Address</label>
-  <input type="text" name="address" required>
-
-  <label>Property Status</label>
   <select name="occupancy">
     <option value="Vacant">Vacant</option>
     <option value="Occupied">Occupied</option>
   </select>
 
-  <label>Escrow / Closing Date</label>
   <input type="date" name="escrow">
 
-  <label>Supra or Lockbox Available?</label>
   <select name="lockbox">
     <option value="Yes">Yes</option>
     <option value="No">No</option>
   </select>
 
-  <label>Will someone be present at inspection?</label>
   <select name="meeting">
     <option value="Yes">Yes</option>
     <option value="No">No</option>
   </select>
 
-  <div class="checkbox">
+  <label>
     <input type="checkbox" name="text_me">
-    <label>Text me updates about my inspection</label>
-  </div>
+    Text me updates
+  </label>
 
-  <button type="submit">Submit Inspection Request</button>
-
+  <button type="submit">Submit</button>
 </form>
 
 </body>
