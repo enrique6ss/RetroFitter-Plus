@@ -11,7 +11,9 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 DATABASE_URL = os.environ.get("DATABASE_URL")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
 
-# ---------- DB ----------
+# --------------------
+# Database
+# --------------------
 def get_db():
     if not hasattr(app, "db"):
         app.db = psycopg.connect(DATABASE_URL, row_factory=dict_row)
@@ -35,7 +37,9 @@ def ensure_table():
     """)
     db.commit()
 
-# ---------- AUTH ----------
+# --------------------
+# Auth helper
+# --------------------
 def admin_required(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
@@ -44,7 +48,9 @@ def admin_required(f):
         return f(*args, **kwargs)
     return wrapper
 
-# ---------- ROUTES ----------
+# --------------------
+# Routes
+# --------------------
 @app.route("/", methods=["GET", "POST"])
 def intake():
     ensure_table()
@@ -67,11 +73,14 @@ def intake():
         ))
         db.commit()
         return redirect("/success")
+
     return render_template("intake.html")
+
 
 @app.route("/success")
 def success():
     return render_template("success.html")
+
 
 @app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
@@ -81,13 +90,15 @@ def admin_login():
             return redirect("/admin")
     return render_template("admin_login.html")
 
+
 @app.route("/admin")
 @admin_required
-def admin():
+def admin_dashboard():
     ensure_table()
     db = get_db()
     rows = db.execute("SELECT * FROM requests ORDER BY id DESC").fetchall()
-    return render_template("admin.html", rows=rows)
+    return render_template("admin_dashboard.html", rows=rows)
+
 
 @app.route("/health")
 def health():
