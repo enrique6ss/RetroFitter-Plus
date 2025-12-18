@@ -29,15 +29,10 @@ def close_db(error):
         db.close()
 
 def ensure_table():
-    """
-    DEV MODE:
-    Drops and recreates the table to guarantee schema match.
-    """
     db = get_db()
     with db.cursor() as cur:
         cur.execute("""
-            DROP TABLE IF EXISTS requests;
-            CREATE TABLE requests (
+            CREATE TABLE IF NOT EXISTS requests (
                 id SERIAL PRIMARY KEY,
                 created_at TIMESTAMP NOT NULL,
                 name TEXT NOT NULL,
@@ -53,7 +48,7 @@ def ensure_table():
     db.commit()
 
 # --------------------
-# Auth
+# Auth helper
 # --------------------
 def admin_required(f):
     @wraps(f)
@@ -108,6 +103,7 @@ def admin_login():
 @app.route("/admin")
 @admin_required
 def admin_dashboard():
+    ensure_table()
     db = get_db()
     with db.cursor() as cur:
         cur.execute("SELECT * FROM requests ORDER BY id DESC")
