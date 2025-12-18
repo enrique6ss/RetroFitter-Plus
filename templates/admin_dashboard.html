@@ -1,0 +1,29 @@
+<h1>Inspection Requests</h1>
+
+<table border="1" cellpadding="6">
+<tr>
+  <th>Date</th>
+  <th>Name</th>
+  <th>Phone</th>
+  <th>Address</th>
+  <th>Occupied</th>
+  <th>Escrow</th>
+  <th>Lockbox</th>
+  <th>Meeting</th>
+  <th>Text OK</th>
+</tr>
+
+{% for r in rows %}
+<tr>
+  <td>{{ r.created_at }}</td>
+  <td>{{ r.name }}</td>
+  <td>{{ r.phone }}</td>
+  <td>{{ r.address }}</td>
+  <td>{{ r.occupancy }}</td>
+  <td>{{ r.escrow }}</td>
+  <td>{{ r.lockbox }}</td>
+  <td>{{ r.meeting }}</td>
+  <td>{{ r.text_consent }}</td>
+</tr>
+{% endfor %}
+</table>
