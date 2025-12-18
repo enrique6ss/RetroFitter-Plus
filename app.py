@@ -12,14 +12,13 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
 
 if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL is not set")
+    raise RuntimeError("DATABASE_URL is missing")
 
 # --------------------
 # Database helpers
 # --------------------
 def get_db():
     if "db" not in g:
-        print("CONNECTING TO DB...")
         g.db = psycopg.connect(DATABASE_URL, row_factory=dict_row)
     return g.db
 
@@ -49,7 +48,7 @@ def ensure_table():
     db.commit()
 
 # --------------------
-# Auth helper
+# Auth
 # --------------------
 def admin_required(f):
     @wraps(f)
@@ -64,37 +63,30 @@ def admin_required(f):
 # --------------------
 @app.route("/", methods=["GET", "POST"])
 def intake():
-    try:
-        ensure_table()
+    ensure_table()
 
-        if request.method == "POST":
-            print("FORM SUBMITTED:", dict(request.form))
+    if request.method == "POST":
+        db = get_db()
+        with db.cursor() as cur:
+            cur.execute("""
+                INSERT INTO requests
+                (created_at, name, phone, address, occupancy, escrow, lockbox, meeting, text_consent)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (
+                datetime.utcnow(),
+                request.form["name"],
+                request.form["phone"],
+                request.form["address"],
+                request.form.get("occupancy"),
+                request.form.get("escrow"),
+                request.form.get("lockbox"),
+                request.form.get("meeting"),
+                "Yes" if request.form.get("text_me") else "No"
+            ))
+        db.commit()
+        return redirect("/success")
 
-            db = get_db()
-            with db.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO requests
-                    (created_at, name, phone, address, occupancy, escrow, lockbox, meeting, text_consent)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                """, (
-                    datetime.utcnow(),
-                    request.form.get("name"),
-                    request.form.get("phone"),
-                    request.form.get("address"),
-                    request.form.get("occupancy"),
-                    request.form.get("escrow"),
-                    request.form.get("lockbox"),
-                    request.form.get("meeting"),
-                    "Yes" if request.form.get("text_me") else "No"
-                ))
-            db.commit()
-            return redirect("/success")
-
-        return render_template("intake.html")
-
-    except Exception as e:
-        print("🔥 SUBMIT ERROR:", e)
-        raise e  # let Railway log it clearly
+    return render_template("intake.html")
 
 @app.route("/success")
 def success():
