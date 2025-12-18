@@ -4,6 +4,7 @@ from functools import wraps
 from flask import Flask, render_template, request, redirect, session, g
 import psycopg
 from psycopg.rows import dict_row
+import traceback
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
@@ -63,30 +64,38 @@ def admin_required(f):
 # --------------------
 @app.route("/", methods=["GET", "POST"])
 def intake():
-    ensure_table()
+    try:
+        ensure_table()
 
-    if request.method == "POST":
-        db = get_db()
-        with db.cursor() as cur:
-            cur.execute("""
-                INSERT INTO requests
-                (created_at, name, phone, address, occupancy, escrow, lockbox, meeting, text_consent)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            """, (
-                datetime.utcnow(),
-                request.form["name"],
-                request.form["phone"],
-                request.form["address"],
-                request.form.get("occupancy"),
-                request.form.get("escrow"),
-                request.form.get("lockbox"),
-                request.form.get("meeting"),
-                "Yes" if request.form.get("text_me") else "No"
-            ))
-        db.commit()
-        return redirect("/success")
+        if request.method == "POST":
+            db = get_db()
+            with db.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO requests
+                    (created_at, name, phone, address, occupancy, escrow, lockbox, meeting, text_consent)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """, (
+                    datetime.utcnow(),
+                    request.form["name"],
+                    request.form["phone"],
+                    request.form["address"],
+                    request.form.get("occupancy"),
+                    request.form.get("escrow"),
+                    request.form.get("lockbox"),
+                    request.form.get("meeting"),
+                    "Yes" if request.form.get("text_me") else "No"
+                ))
+            db.commit()
+            return redirect("/success")
 
-    return render_template("intake.html")
+        return render_template("intake.html")
+
+    except Exception as e:
+        # 🔥 SHOW THE REAL ERROR IN THE BROWSER
+        return f"""
+        <h1>Internal Error</h1>
+        <pre>{traceback.format_exc()}</pre>
+        """, 500
 
 @app.route("/success")
 def success():
