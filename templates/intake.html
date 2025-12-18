@@ -1,47 +1,10 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <title>RetroFitter Plus – Inspection Request</title>
-  <link rel="stylesheet" href="/static/styles.css">
-</head>
-<body>
+<input name="name">
+<input name="phone">
+<input name="address">
 
-<h1>RetroFitter Plus</h1>
-<p>Request a retrofit inspection and we’ll call or text you back.</p>
+<select name="occupancy">
+<input type="date" name="escrow">
+<select name="lockbox">
+<select name="meeting">
 
-<form method="POST">
-  <input name="name" placeholder="Full Name" required>
-  <input name="phone" placeholder="Phone Number" required>
-  <input name="address" placeholder="Property Address" required>
-
-  <label>Vacant or Occupied?</label>
-  <select name="occupancy">
-    <option>Vacant</option>
-    <option>Occupied</option>
-  </select>
-
-  <label>Escrow / Closing Date</label>
-  <input type="date" name="escrow">
-
-  <label>Supra or Lockbox?</label>
-  <select name="lockbox">
-    <option>Yes</option>
-    <option>No</option>
-  </select>
-
-  <label>Will someone be present?</label>
-  <select name="meeting">
-    <option>Yes</option>
-    <option>No</option>
-  </select>
-
-  <label>
-    <input type="checkbox" name="text_me">
-    Text me updates about my inspection
-  </label>
-
-  <button type="submit">Submit Request</button>
-</form>
-
-</body>
-</html>
+<input type="checkbox" name="text_me">
