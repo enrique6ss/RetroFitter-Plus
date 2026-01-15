@@ -56,11 +56,19 @@ def ensure_table():
 # Email notification (SendGrid SMTP)
 # -------------------------------------------------
 def send_notification_email(data):
+    """
+    Returns (True, None) on success
+    Returns (False, error_string) on failure
+    """
     try:
-        from_email = os.environ["FROM_EMAIL"]
-        notify_email = os.environ["NOTIFY_EMAIL"]
-        api_key = os.environ["SENDGRID_API_KEY"]
+        from_email = os.environ.get("FROM_EMAIL")
+        notify_email = os.environ.get("NOTIFY_EMAIL")
+        api_key = os.environ.get("SENDGRID_API_KEY")
 
+        if not from_email or not notify_email or not api_key:
+            return (False, "Missing FROM_EMAIL, NOTIFY_EMAIL, or SENDGRID_API_KEY env var(s)")
+
+        # Log basics (safe)
         print("EMAIL DEBUG: FROM_EMAIL =", from_email)
         print("EMAIL DEBUG: NOTIFY_EMAIL =", notify_email)
         print("EMAIL DEBUG: API KEY starts with =", api_key[:6], "...")
@@ -83,16 +91,19 @@ def send_notification_email(data):
         )
 
         with smtplib.SMTP("smtp.sendgrid.net", 587, timeout=20) as server:
-            server.set_debuglevel(1)  # shows SMTP conversation in Railway logs
+            # Keep debug off to reduce noise; we’ll log exceptions instead
+            # server.set_debuglevel(1)
             server.starttls()
             server.login("apikey", api_key)
             server.send_message(msg)
 
         print("EMAIL DEBUG: ✅ Email sent successfully")
+        return (True, None)
 
     except Exception as e:
-        print("EMAIL DEBUG: ❌ Email failed:", repr(e))
-        raise
+        err = repr(e)
+        print("EMAIL DEBUG: ❌ Email failed:", err)
+        return (False, err)
 
 # -------------------------------------------------
 # Auth helper
@@ -124,6 +135,7 @@ def intake():
             "text_consent": "Yes" if request.form.get("text_me") else "No"
         }
 
+        # Save request
         db = get_db()
         with db.cursor() as cur:
             cur.execute("""
@@ -144,8 +156,10 @@ def intake():
             ))
         db.commit()
 
-        # Send email notification
-        send_notification_email(data)
+        # Try email, but NEVER fail the request if email fails
+        ok, err = send_notification_email(data)
+        if not ok:
+            print("EMAIL DEBUG: continuing without email. reason =", err)
 
         return redirect("/success")
 
