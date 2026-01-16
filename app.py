@@ -1,4 +1,5 @@
 import os
+import threading
 from datetime import datetime
 from functools import wraps
 from flask import Flask, render_template, request, redirect, session, g
@@ -53,12 +54,12 @@ def ensure_table():
     db.commit()
 
 # -------------------------------------------------
-# Email notification (SendGrid SMTP)
+# Email notification (SendGrid SMTP) - background safe
 # -------------------------------------------------
-def send_notification_email(data):
+def _send_email_background(payload: dict):
     """
-    Returns (True, None) on success
-    Returns (False, error_string) on failure
+    Runs in a background thread.
+    Must NEVER raise (or it can kill the worker in some environments).
     """
     try:
         from_email = os.environ.get("FROM_EMAIL")
@@ -66,44 +67,41 @@ def send_notification_email(data):
         api_key = os.environ.get("SENDGRID_API_KEY")
 
         if not from_email or not notify_email or not api_key:
-            return (False, "Missing FROM_EMAIL, NOTIFY_EMAIL, or SENDGRID_API_KEY env var(s)")
-
-        # Log basics (safe)
-        print("EMAIL DEBUG: FROM_EMAIL =", from_email)
-        print("EMAIL DEBUG: NOTIFY_EMAIL =", notify_email)
-        print("EMAIL DEBUG: API KEY starts with =", api_key[:6], "...")
+            print("EMAIL DEBUG: Missing FROM_EMAIL / NOTIFY_EMAIL / SENDGRID_API_KEY on WEB service")
+            return
 
         msg = EmailMessage()
-        msg["Subject"] = "New Inspection Request – RetroFitter Plus"
+        msg["Subject"] = f"New Inspection Request #{payload.get('id','')} – RetroFitter Plus"
         msg["From"] = from_email
         msg["To"] = notify_email
 
         msg.set_content(
             "New inspection request received:\n\n"
-            f"Name: {data['name']}\n"
-            f"Phone: {data['phone']}\n"
-            f"Address: {data['address']}\n"
-            f"Occupied: {data['occupancy']}\n"
-            f"Escrow Date: {data['escrow']}\n"
-            f"Lockbox: {data['lockbox']}\n"
-            f"Meeting: {data['meeting']}\n"
-            f"Text Consent: {data['text_consent']}\n"
+            f"Request ID: {payload.get('id','')}\n"
+            f"Name: {payload.get('name')}\n"
+            f"Phone: {payload.get('phone')}\n"
+            f"Address: {payload.get('address')}\n"
+            f"Occupied: {payload.get('occupancy')}\n"
+            f"Escrow Date: {payload.get('escrow')}\n"
+            f"Lockbox: {payload.get('lockbox')}\n"
+            f"Meeting: {payload.get('meeting')}\n"
+            f"Text Consent: {payload.get('text_consent')}\n"
         )
 
-        with smtplib.SMTP("smtp.sendgrid.net", 587, timeout=20) as server:
-            # Keep debug off to reduce noise; we’ll log exceptions instead
-            # server.set_debuglevel(1)
+        # Keep timeouts short so it never bogs down
+        with smtplib.SMTP("smtp.sendgrid.net", 587, timeout=10) as server:
             server.starttls()
             server.login("apikey", api_key)
             server.send_message(msg)
 
-        print("EMAIL DEBUG: ✅ Email sent successfully")
-        return (True, None)
+        print("EMAIL DEBUG: ✅ Email sent")
 
     except Exception as e:
-        err = repr(e)
-        print("EMAIL DEBUG: ❌ Email failed:", err)
-        return (False, err)
+        print("EMAIL DEBUG: ❌ Email failed:", repr(e))
+
+def send_email_async(payload: dict):
+    t = threading.Thread(target=_send_email_background, args=(payload,), daemon=True)
+    t.start()
 
 # -------------------------------------------------
 # Auth helper
@@ -124,44 +122,51 @@ def intake():
     ensure_table()
 
     if request.method == "POST":
-        data = {
-            "name": request.form["name"],
-            "phone": request.form["phone"],
-            "address": request.form["address"],
-            "occupancy": request.form.get("occupancy"),
-            "escrow": request.form.get("escrow"),
-            "lockbox": request.form.get("lockbox"),
-            "meeting": request.form.get("meeting"),
-            "text_consent": "Yes" if request.form.get("text_me") else "No"
-        }
+        try:
+            data = {
+                "name": request.form["name"],
+                "phone": request.form["phone"],
+                "address": request.form["address"],
+                "occupancy": request.form.get("occupancy"),
+                "escrow": request.form.get("escrow"),
+                "lockbox": request.form.get("lockbox"),
+                "meeting": request.form.get("meeting"),
+                "text_consent": "Yes" if request.form.get("text_me") else "No"
+            }
 
-        # Save request
-        db = get_db()
-        with db.cursor() as cur:
-            cur.execute("""
-                INSERT INTO requests
-                (created_at, name, phone, address, occupancy, escrow, lockbox, meeting, text_consent, status)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            """, (
-                datetime.utcnow(),
-                data["name"],
-                data["phone"],
-                data["address"],
-                data["occupancy"],
-                data["escrow"],
-                data["lockbox"],
-                data["meeting"],
-                data["text_consent"],
-                "New"
-            ))
-        db.commit()
+            # Save request and get its ID
+            db = get_db()
+            with db.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO requests
+                    (created_at, name, phone, address, occupancy, escrow, lockbox, meeting, text_consent, status)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    RETURNING id
+                """, (
+                    datetime.utcnow(),
+                    data["name"],
+                    data["phone"],
+                    data["address"],
+                    data["occupancy"],
+                    data["escrow"],
+                    data["lockbox"],
+                    data["meeting"],
+                    data["text_consent"],
+                    "New"
+                ))
+                new_id = cur.fetchone()["id"]
+            db.commit()
 
-        # Try email, but NEVER fail the request if email fails
-        ok, err = send_notification_email(data)
-        if not ok:
-            print("EMAIL DEBUG: continuing without email. reason =", err)
+            # Fire-and-forget email (does NOT slow page, does NOT break submit)
+            data["id"] = new_id
+            send_email_async(data)
 
-        return redirect("/success")
+            return redirect("/success")
+
+        except Exception as e:
+            # If DB fails, we show a friendly error AND log the real one
+            print("SUBMIT ERROR:", repr(e))
+            return "Submit failed. Please try again or contact RetroFitter Plus.", 500
 
     return render_template("intake.html")
 
