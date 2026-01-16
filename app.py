@@ -1,12 +1,12 @@
 import os
+import json
 import threading
+import urllib.request
 from datetime import datetime
 from functools import wraps
 from flask import Flask, render_template, request, redirect, session, g
 import psycopg
 from psycopg.rows import dict_row
-import smtplib
-from email.message import EmailMessage
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
@@ -54,28 +54,26 @@ def ensure_table():
     db.commit()
 
 # -------------------------------------------------
-# Email notification (SendGrid SMTP) - background safe
+# SendGrid Email via HTTP API (no SMTP)
 # -------------------------------------------------
-def _send_email_background(payload: dict):
+def _sendgrid_send_email(payload: dict):
     """
     Runs in a background thread.
-    Must NEVER raise (or it can kill the worker in some environments).
+    Never raises.
+    Uses SendGrid Web API (HTTPS) to avoid SMTP timeouts.
     """
     try:
-        from_email = os.environ.get("FROM_EMAIL")
-        notify_email = os.environ.get("NOTIFY_EMAIL")
         api_key = os.environ.get("SENDGRID_API_KEY")
+        from_email = os.environ.get("FROM_EMAIL")
+        to_email = os.environ.get("NOTIFY_EMAIL")
 
-        if not from_email or not notify_email or not api_key:
-            print("EMAIL DEBUG: Missing FROM_EMAIL / NOTIFY_EMAIL / SENDGRID_API_KEY on WEB service")
+        if not api_key or not from_email or not to_email:
+            print("EMAIL DEBUG: Missing SENDGRID_API_KEY / FROM_EMAIL / NOTIFY_EMAIL on WEB service")
             return
 
-        msg = EmailMessage()
-        msg["Subject"] = f"New Inspection Request #{payload.get('id','')} – RetroFitter Plus"
-        msg["From"] = from_email
-        msg["To"] = notify_email
+        subject = f"New Inspection Request #{payload.get('id','')} – RetroFitter Plus"
 
-        msg.set_content(
+        text_body = (
             "New inspection request received:\n\n"
             f"Request ID: {payload.get('id','')}\n"
             f"Name: {payload.get('name')}\n"
@@ -88,19 +86,37 @@ def _send_email_background(payload: dict):
             f"Text Consent: {payload.get('text_consent')}\n"
         )
 
-        # Keep timeouts short so it never bogs down
-        with smtplib.SMTP("smtp.sendgrid.net", 587, timeout=10) as server:
-            server.starttls()
-            server.login("apikey", api_key)
-            server.send_message(msg)
+        sg_payload = {
+            "personalizations": [{"to": [{"email": to_email}]}],
+            "from": {"email": from_email},
+            "subject": subject,
+            "content": [{"type": "text/plain", "value": text_body}],
+        }
 
-        print("EMAIL DEBUG: ✅ Email sent")
+        req = urllib.request.Request(
+            url="https://api.sendgrid.com/v3/mail/send",
+            data=json.dumps(sg_payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            # SendGrid returns 202 Accepted on success
+            status = resp.status
+
+        if status == 202:
+            print("EMAIL DEBUG: ✅ Email sent via SendGrid API")
+        else:
+            print("EMAIL DEBUG: ❌ Unexpected SendGrid status:", status)
 
     except Exception as e:
-        print("EMAIL DEBUG: ❌ Email failed:", repr(e))
+        print("EMAIL DEBUG: ❌ SendGrid API email failed:", repr(e))
 
 def send_email_async(payload: dict):
-    t = threading.Thread(target=_send_email_background, args=(payload,), daemon=True)
+    t = threading.Thread(target=_sendgrid_send_email, args=(payload,), daemon=True)
     t.start()
 
 # -------------------------------------------------
@@ -157,14 +173,13 @@ def intake():
                 new_id = cur.fetchone()["id"]
             db.commit()
 
-            # Fire-and-forget email (does NOT slow page, does NOT break submit)
+            # Fire-and-forget email (does not block)
             data["id"] = new_id
             send_email_async(data)
 
             return redirect("/success")
 
         except Exception as e:
-            # If DB fails, we show a friendly error AND log the real one
             print("SUBMIT ERROR:", repr(e))
             return "Submit failed. Please try again or contact RetroFitter Plus.", 500
 
